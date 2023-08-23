@@ -3,10 +3,10 @@
 * The random_state values can be set as [0, 11, 22, 33, 44, 55, 66, 77, 88, 99].
 ![Framework](https://github.com/xuweijun-npuer/Nonexchangeable-Split-Conformal-Prediction-of-RUL/blob/main/figures/framework.jpg)
 ##Dependencies
-keras==2.12.0
-matplotlib==3.7.1
-pandas==2.0.2
-numpy==1.23.5
-scipy==1.10.1
-scikit-learn==1.2.2
-tensorflow==2.12.0
+* keras==2.12.0
+* matplotlib==3.7.1
+* pandas==2.0.2
+* numpy==1.23.5
+* scipy==1.10.1
+* scikit-learn==1.2.2
+* tensorflow==2.12.0
