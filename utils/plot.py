@@ -2,7 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 def plot_single_intervals(intervals, single_point_predictions, ground_truth_rul, color, label):
-    sorted_ground_truth_rul_index = ground_truth_rul.argsort(axis=0).reshape(-1)
+    sorted_ground_truth_rul_index = ground_truth_rul.argsort(axis=0, kind='quicksort')[::-1].reshape(-1)
+    #sorted_ground_truth_rul_index = ground_truth_rul.argsort(axis=0).reshape(-1)
     sorted_ground_truth_rul = ground_truth_rul[sorted_ground_truth_rul_index]
     lower = intervals[0].reshape(-1)
     upper = intervals[1].reshape(-1)
@@ -13,19 +14,21 @@ def plot_single_intervals(intervals, single_point_predictions, ground_truth_rul,
     plt.rcParams["font.family"] = "Times New Roman"
     plt.rcParams["font.size"] = 25
     plt.fill_between(range(len(sorted_ground_truth_rul)), sorted_lower, sorted_upper, color=color, alpha=1, label=label)
-    plt.plot(range(len(sorted_ground_truth_rul)), sorted_ground_truth_rul, 'ok', label="Ground truth RULs", alpha=0.6)
+    plt.plot(range(len(sorted_ground_truth_rul)), sorted_ground_truth_rul, 'ok', label="Groundtruth RULs", alpha=0.6)
     plt.plot(range(len(sorted_ground_truth_rul)), single_point_predictions[sorted_ground_truth_rul_index], '--k',
              label="Single-point RUL predictions", alpha=1)
-    plt.ylim([0, 220])
+    plt.ylim([0, 250])
     plt.xlabel('Test unit with increasing RUL')
     plt.ylabel('Remaining useful life')
-    plt.legend(loc='upper left')
+    plt.legend(loc='upper right')
     plt.tight_layout()
-    plt.savefig(fname = "../figures/" + label + ".tif", dpi = 300, format="tif")
+    plt.savefig(fname = "../figures/" + label + ".eps", dpi = 300, format="eps")
+    plt.savefig(fname = "../figures/" + label + ".svg", dpi = 300, format="svg")
     plt.show()
 
 def plot_two_intervals(intervals1, intervals2, single_point_predictions, ground_truth_rul, color, label):
-    sorted_ground_truth_rul_index = ground_truth_rul.argsort(axis=0).reshape(-1)
+    sorted_ground_truth_rul_index = ground_truth_rul.argsort(axis=0, kind='quicksort')[::-1].reshape(-1)
+    #sorted_ground_truth_rul_index = ground_truth_rul.argsort(axis=0).reshape(-1)
     sorted_ground_truth_rul = ground_truth_rul[sorted_ground_truth_rul_index]
     lower1 = intervals1[0].reshape(-1)
     upper1 = intervals1[1].reshape(-1)
@@ -45,14 +48,15 @@ def plot_two_intervals(intervals1, intervals2, single_point_predictions, ground_
                      label=label[1])
     plt.fill_between(range(len(sorted_ground_truth_rul)), np.maximum(sorted_lower1, sorted_lower2),
                      np.minimum(sorted_upper1, sorted_upper2), alpha=1, label=label[2])
-    plt.plot(range(len(sorted_ground_truth_rul)), sorted_ground_truth_rul, 'ok', label="Ground truth RULs",
+    plt.plot(range(len(sorted_ground_truth_rul)), sorted_ground_truth_rul, 'ok', label="Groundtruth RULs",
                      alpha=0.6)
     plt.plot(range(len(sorted_ground_truth_rul)), single_point_predictions[sorted_ground_truth_rul_index], '--k',
              label="Single-point RUL predictions", alpha=1)
-    plt.ylim([0, 220])
+    plt.ylim([0, 250])
     plt.xlabel('Test unit with increasing RUL')
     plt.ylabel('Remaining useful life')
-    plt.legend(loc='upper left')
+    plt.legend(loc='upper right')
     plt.tight_layout()
-    plt.savefig(fname = "../figures/" + label[0] + "-"+ label[1] + ".tif", dpi = 300, format="tif")
+    plt.savefig(fname = "../figures/" + label[0] + "-" + label[1] + ".eps", dpi = 300, format="eps")
+    plt.savefig(fname = "../figures/" + label[0] + "-" + label[1] + ".svg", dpi = 300, format="svg")
     plt.show()

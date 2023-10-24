@@ -30,28 +30,26 @@ def calculate_quantiles_nonexchangeable(base_ratio, scores, test_index, calibrat
         weights_normalized = weights/(weights.sum()+1)
         position_index = np.where(weights_normalized.cumsum() >= 1-alpha)[0][0]
         quantile = sorted_scores[position_index][0]
-        quantiles.append(quantile)
+        quantiles.append(quantile.item())
         positons.append(position_index)
-    return np.array(quantiles).reshape(-1,1)
-def calculate_intervals(sigma_calibration,sigma_test,y_calibration,y_hat_calibration,y_test,y_hat_test,calibration_index,test_index,alpha,base_ratio,window_length):
+    return np.array(quantiles)
+def calculate_intervals(sigma_calibration,sigma_test,y_calibration,y_hat_calibration,y_test,y_hat_test,
+                        calibration_index,test_index,alpha,base_ratio):
     scores = np.abs(y_calibration - y_hat_calibration)
     scores_normalized = scores / sigma_calibration
     q = calculate_quantile(scores, alpha)
-    if window_length == 30:
-        q_array = calculate_quantiles_nonexchangeable(base_ratio, scores, test_index, calibration_index, alpha)
-        q_array_normalized = calculate_quantiles_nonexchangeable(base_ratio, scores_normalized, test_index,
-                                                                 calibration_index, alpha)
-    else:
-        q_array = calculate_quantiles_nonexchangeable(base_ratio, scores.reshape(-1, 1), test_index, calibration_index, alpha).reshape(-1)
-        q_array_normalized = calculate_quantiles_nonexchangeable(base_ratio, scores_normalized.reshape(-1, 1), test_index,
-                                                                 calibration_index, alpha).reshape(-1)
+    q_array = calculate_quantiles_nonexchangeable(base_ratio, scores, test_index, calibration_index, alpha).reshape(-1, 1)
+    q_normalized = calculate_quantile(scores_normalized, alpha)
+    q_array_normalized = calculate_quantiles_nonexchangeable(base_ratio, scores_normalized, test_index,
+                                                                 calibration_index, alpha).reshape(-1, 1)
     intervals_dictionary = {
         "SCP": (y_hat_test - q, y_hat_test + q),
         "NSCP": (y_hat_test - q_array, y_hat_test + q_array),
+        "SCPN": (y_hat_test - q_normalized * sigma_test, y_hat_test + q_normalized * sigma_test),
         "NSCPN": (y_hat_test - q_array_normalized * sigma_test, y_hat_test + q_array_normalized * sigma_test),
     }
     total_prediction_results_dictionary ={
-        "Ground truth RULs": y_test,
+        "Groundtruth RULs": y_test,
         "Single-point RUL predictions": y_hat_test,
         "intervals": intervals_dictionary
     }

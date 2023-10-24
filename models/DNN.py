@@ -16,18 +16,11 @@ tf.config.experimental.enable_op_determinism()
 window_length = 30
 
 dataframe_dictionary = dp.get_dataset_from_txt()
-split_dataset_dictionary = dp.split_dataset(dataframe_dictionary, groups = dataframe_dictionary["train"]["unit"], n_splits = 1, test_size = 0.2, random_state = random_state)
-reform_dictionary = dp.reform_dictionary(split_dataset_dictionary, window_length)
-data_dictionary = dp.prepare_data_for_multimodel(reform_dictionary)
-
-X_train = data_dictionary["X_train"]
-y_train = data_dictionary["y_train"]
-X_calibration = data_dictionary["X_calibration"]
-y_calibration = data_dictionary["y_calibration"]
-time_index_calibration = data_dictionary["time_index_calibration"]
-X_test = data_dictionary["X_test"]
-y_test = data_dictionary["y_test"]
-time_index_test = data_dictionary["time_index_test"]
+split_dataset_dictionary, train_index, calibration_index = dp.split_dataset(dataframe_dictionary, groups = dataframe_dictionary["train"]["unit"], n_splits = 1, test_size = 0.2, random_state = random_state)
+X_train, y_train = dp.get_train_data(split_dataset_dictionary['train'], window_length = window_length, shift = 1, index = train_index)
+X_calibration, y_calibration = dp.get_train_data(split_dataset_dictionary['calibration'], window_length = window_length, shift = 1, index = calibration_index)
+time_index_calibration = y_calibration
+X_test, y_test = dp.get_test_data(split_dataset_dictionary['test'], window_length = window_length, shift = 1, num_test_windows = 1)
 
 def create_compiled_model():
     model = Sequential([
@@ -51,49 +44,83 @@ def scheduler(epoch):
 
 callback = tf.keras.callbacks.LearningRateScheduler(scheduler)
 DNN = create_compiled_model()
-DNN.compile(optimizer = Adam(learning_rate=1e-3), loss = MeanSquaredError(), metrics = RootMeanSquaredError())
+DNN.compile(optimizer = Adam(learning_rate = 1e-3), loss = MeanSquaredError(), metrics = RootMeanSquaredError())
 history = DNN.fit(x = X_train, y = y_train, batch_size = 512, epochs = 20,  callbacks = callback, verbose = 2)
 print("evaluation of DNN:", DNN.evaluate(X_test, y_test, verbose=2))
 print("DNN fitting finished!")
-test_rmse = DNN.evaluate(X_test, y_test, verbose=2)[1]
+test_rmse = DNN.evaluate(X_test, y_test, verbose = 2)[1]
 
-y_hat_train = DNN.predict(x = X_train, verbose=0)
-y_hat_calibration = DNN.predict(x = X_calibration, verbose=0)
-y_hat_test = DNN.predict(x = X_test, verbose=0)
+y_hat_train = DNN.predict(X_train)
+y_hat_calibration = DNN.predict(X_calibration)
+y_hat_test = DNN.predict(X_test)
+time_index_test = np.around(y_hat_test)
+y_train = y_train.reshape(-1, 1)
 res_train = np.abs(y_hat_train - y_train)
 
-X_train_reshaped = X_train.reshape(-1, 30*14)
-X_cal_reshaped = X_calibration.reshape(-1, 30*14)
-X_test_reshaped = X_test.reshape(-1, 30*14)
-
+RF = RandomForestRegressor(random_state = random_state)
 res_train = res_train.ravel()
-RF = RandomForestRegressor(random_state=random_state)
-RF.fit(X_train_reshaped, res_train)
+X_train = X_train.reshape((X_train.shape[0], -1))
+RF.fit(X_train, res_train)
 print("RF fitting finished!")
 
-base_ratio = 0.99
+base_ratio = 0.9
 alpha = 0.1
-sigma_calibration = RF.predict(X_cal_reshaped).reshape(-1, 1)
-sigma_test = RF.predict(X_test_reshaped).reshape(-1, 1)
+sigma_calibration = RF.predict(X_calibration.reshape((X_calibration.shape[0], -1))).reshape(-1, 1)
+sigma_test = RF.predict(X_test.reshape((X_test.shape[0], -1))).reshape(-1, 1)
 
-total_prediction_results_dictionary = mf.calculate_intervals(sigma_calibration,sigma_test,y_calibration,y_hat_calibration,y_test,y_hat_test,time_index_calibration,time_index_test,alpha,base_ratio,window_length)
+y_calibration = y_calibration.reshape(-1, 1)
+y_test = y_test.reshape(-1, 1)
+time_index_calibration = time_index_calibration.reshape(-1, 1)
+
+
+total_prediction_results_dictionary = mf.calculate_intervals(sigma_calibration,sigma_test,y_calibration,y_hat_calibration,y_test,y_hat_test,time_index_calibration,time_index_test,alpha,base_ratio)
 plt.plot_single_intervals(total_prediction_results_dictionary["intervals"]["NSCPN"],
                           total_prediction_results_dictionary["Single-point RUL predictions"],
-                          total_prediction_results_dictionary["Ground truth RULs"],
-                          "palegreen",
+                          total_prediction_results_dictionary["Groundtruth RULs"],
+                          "pink",
                           "DNN-NSCPN"+" intervals")
 plt.plot_two_intervals(total_prediction_results_dictionary["intervals"]["SCP"],
                        total_prediction_results_dictionary["intervals"]["NSCP"],
                        total_prediction_results_dictionary["Single-point RUL predictions"],
-                       total_prediction_results_dictionary["Ground truth RULs"],
+                       total_prediction_results_dictionary["Groundtruth RULs"],
                        color = ["silver","pink"],
                        label = ["DNN-SCP intervals ","DNN-NSCP intervals","Overlapped intervals"])
+
+plt.plot_two_intervals(total_prediction_results_dictionary["intervals"]["SCP"],
+                       total_prediction_results_dictionary["intervals"]["SCPN"],
+                       total_prediction_results_dictionary["Single-point RUL predictions"],
+                       total_prediction_results_dictionary["Groundtruth RULs"],
+                       color = ["silver","pink"],
+                       label = ["DNN-SCP intervals ","DNN-SCPN intervals","Overlapped intervals"])
+
+plt.plot_two_intervals(total_prediction_results_dictionary["intervals"]["SCPN"],
+                       total_prediction_results_dictionary["intervals"]["NSCP"],
+                       total_prediction_results_dictionary["Single-point RUL predictions"],
+                       total_prediction_results_dictionary["Groundtruth RULs"],
+                       color = ["silver","pink"],
+                       label = ["DNN-SCPN intervals ","DNN-NSCP intervals","Overlapped intervals"])
+
 plt.plot_two_intervals(total_prediction_results_dictionary["intervals"]["SCP"],
                        total_prediction_results_dictionary["intervals"]["NSCPN"],
                        total_prediction_results_dictionary["Single-point RUL predictions"],
-                       total_prediction_results_dictionary["Ground truth RULs"],
-                       color=["silver","lightgreen"],
+                       total_prediction_results_dictionary["Groundtruth RULs"],
+                       color = ["silver","pink"],
                        label = ["DNN-SCP intervals ","DNN-NSCPN intervals","Overlapped intervals"])
+
+plt.plot_two_intervals(total_prediction_results_dictionary["intervals"]["NSCP"],
+                       total_prediction_results_dictionary["intervals"]["NSCPN"],
+                       total_prediction_results_dictionary["Single-point RUL predictions"],
+                       total_prediction_results_dictionary["Groundtruth RULs"],
+                       color = ["silver","pink"],
+                       label = ["DNN-NSCP intervals ","DNN-NSCPN intervals","Overlapped intervals"])
+
+plt.plot_two_intervals(total_prediction_results_dictionary["intervals"]["SCPN"],
+                       total_prediction_results_dictionary["intervals"]["NSCPN"],
+                       total_prediction_results_dictionary["Single-point RUL predictions"],
+                       total_prediction_results_dictionary["Groundtruth RULs"],
+                       color = ["silver","pink"],
+                       label = ["DNN-SCPN intervals ","DNN-NSCPN intervals","Overlapped intervals"])
+
 coverage = mf.calculate_coverage(y_test, total_prediction_results_dictionary["intervals"]["NSCPN"][0],total_prediction_results_dictionary["intervals"]["NSCPN"][1])
 average_length = mf.calculate_average_length(total_prediction_results_dictionary["intervals"]["NSCPN"][0],total_prediction_results_dictionary["intervals"]["NSCPN"][1])
 function_score = mf.calculate_function_score(y_test, y_hat_test)

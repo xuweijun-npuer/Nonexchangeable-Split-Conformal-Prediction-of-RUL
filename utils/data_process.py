@@ -68,7 +68,7 @@ def piecewise_rul(df):
     return df_copy
 
 def split_dataset(dataframe_dictionary, groups, n_splits, test_size, random_state):
-    split_result = GroupShuffleSplit(n_splits=n_splits, test_size=test_size, random_state = random_state)
+    split_result = GroupShuffleSplit(n_splits = n_splits, test_size = test_size, random_state = random_state)
     train_index, calibration_index = next(split_result.split(dataframe_dictionary["train"], groups = groups))
     train_df = dataframe_dictionary["train"].iloc[train_index]
     calibration_df = dataframe_dictionary["train"].iloc[calibration_index]
@@ -78,87 +78,47 @@ def split_dataset(dataframe_dictionary, groups, n_splits, test_size, random_stat
         "calibration": calibration_df,
         "test": test_df
     }
-    return split_dataset_dictionary
+    train_unit_index = train_df['unit'].unique()
+    calibration_unit_index = calibration_df['unit'].unique()
+    return split_dataset_dictionary, train_unit_index, calibration_unit_index
 
-def reform_dictionary(df_dictionary, window_length):
-    train = reform_dataframe(df_dictionary["train"], number_in = window_length - 1, number_out = 1)
-    calibration = reform_dataframe(df_dictionary["calibration"], number_in = window_length - 1, number_out = 1)
-    test_temporary = reform_dataframe(df_dictionary["test"], number_in = window_length - 1, number_out=1)
-    test = reform_test_dataframe(test_temporary)
-    reform_dictionary = {
-        "train": train,
-        "calibration": calibration,
-        "test": test
-    }
-    return reform_dictionary
+def dataframe_slice(df, window_length, shift):
+    target_data = df.iloc[:, -1]
+    num_batches = int(np.floor((len(df) - window_length) / shift)) + 1
+    df = df.drop(['unit', 'time', 'rul'], axis = 1)
+    num_features = df.shape[1]
+    output_data = np.repeat(np.nan, repeats = num_batches * window_length * num_features).reshape(num_batches,
+                                                                                                window_length, -1)
+    output_targets = np.repeat(np.nan, repeats = num_batches)
+    for batch in range(num_batches):
+        output_data[batch, :, :] = df.iloc[(0 + shift * batch):(0 + shift * batch + window_length), :]
+        output_targets[batch] = target_data.iloc[(shift * batch + (window_length - 1))]
+    return output_data, output_targets
 
-def reform_dataframe(dataframe, number_in, number_out):
-    X_list, y_list, unit_list, time_index_list = [], [], [], []
-    for unit in dataframe.unit.unique():
-        unit_dataframe = dataframe[dataframe.unit == unit]
-        id_df_supervised = series_to_supervised(unit_dataframe.drop(["unit", "time", "rul"], axis=1), number_in, number_out)
-        X = id_df_supervised.astype(np.float32).values
-        X_list.append(X.reshape(X.shape[0], number_in+1, X.shape[1]//(number_in+1), 1))
-        rul = unit_dataframe["rul"].astype(np.float32).values.reshape(-1,1)
-        y_list.append(rul[number_in:])
-        unit_list = unit_list + X.shape[0]*[unit]
-        time_index_list.append(np.arange(X.shape[0]))
+def test_dataframe_slice(df, window_length, shift, num_test_windows = 1):
+    required_len = (num_test_windows - 1) * shift + window_length
+    batched_test_data_for_an_engine, output_test = dataframe_slice(df.iloc[-required_len:, :],
+                                                                          window_length = window_length, shift=shift)
+    return batched_test_data_for_an_engine, output_test
+def get_train_data(df, window_length, shift, index):
+    processed_train_data = []
+    processed_train_targets = []
+    for i in index:
+        temp_df = df[df['unit'] == i]
+        output_for_an_engine, output_target_for_an_engine = dataframe_slice(df = temp_df, window_length = window_length, shift = shift)
+        processed_train_data.append(output_for_an_engine)
+        processed_train_targets.append(output_target_for_an_engine)
+    return np.vstack(processed_train_data), np.concatenate(processed_train_targets)
 
-    return {
-        "X": np.vstack(X_list),
-        "y": np.vstack(y_list),
-        "unit": np.array(unit_list),
-        "time_index": np.hstack(time_index_list)
-    }
-
-def series_to_supervised(dataframe, number_in, number_out):
-    number_dim = dataframe.shape[1]
-    columns, names = list(), list()
-    for i in range(number_in, 0, -1):
-        columns.append(dataframe.shift(i))
-        names += [('var%d(t-%d)' % (j+1, i)) for j in range(number_dim)]
-    for i in range(0, number_out):
-        columns.append(dataframe.shift(-i))
-        if i == 0:
-            names += [('var%d(t)' % (j+1)) for j in range(number_dim)]
-        else:
-            names += [('var%d(t+%d)' % (j+1, i)) for j in range(number_dim)]
-    new_dataframe = pd.concat(columns, axis=1)
-    new_dataframe.columns = names
-    new_dataframe.dropna(inplace=True)
-    return new_dataframe
-
-def reform_test_dataframe(test_dataframe):
-    X_test, y_test, time_index_test = [], [], []
-    for unit in np.unique(test_dataframe["unit"]):
-        X_test.append(test_dataframe["X"][test_dataframe["unit"]==unit][-1])
-        y_test.append(test_dataframe["y"][test_dataframe["unit"]==unit][-1])
-        time_index_test.append(test_dataframe["time_index"][test_dataframe["unit"]==unit][-1])
-    return {
-        "X":np.array(X_test),
-        "y":np.array(y_test),
-        "time_index":np.array(time_index_test)
-    }
-
-def prepare_data_for_multimodel(df_dictionary):
-    X_train = df_dictionary["train"]["X"]
-    y_train = df_dictionary["train"]["y"]
-    X_calibration = df_dictionary["calibration"]["X"]
-    y_calibration = df_dictionary["calibration"]["y"]
-    time_index_calibration = df_dictionary["calibration"]["time_index"]
-    X_test = df_dictionary["test"]["X"]
-    y_test = df_dictionary["test"]["y"]
-    time_index_test = df_dictionary["test"]["time_index"]
-    data_dictionary = {
-        "X_train": X_train,
-        "X_calibration": X_calibration,
-        "X_test": X_test,
-        "y_train": y_train,
-        "y_calibration": y_calibration,
-        "y_test": y_test,
-        "time_index_calibration": time_index_calibration,
-        "time_index_test": time_index_test
-    }
-    return data_dictionary
-
+def get_test_data(df, window_length, shift, num_test_windows):
+    processed_test_data = []
+    processed_test_targets = []
+    num_test_engines = len(df['unit'].unique())
+    for i in np.arange(1, num_test_engines + 1):
+        temp_df = df[df['unit'] == i]
+        output_for_an_engine, output_target_for_an_engine = test_dataframe_slice(df = temp_df, window_length = window_length, shift = shift,
+                                                                                 num_test_windows = num_test_windows)
+        processed_test_data.append(output_for_an_engine)
+        processed_test_targets.append(output_target_for_an_engine)
+    return np.vstack(processed_test_data), np.concatenate(processed_test_targets)
 
